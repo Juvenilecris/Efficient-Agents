@@ -6,10 +6,9 @@
 
 <div align="center">
 
-  <a href='https://arxiv.org/abs/2508.02694'><img src=''></a>
-  <a href='https://arxiv.org/abs/2508.02694'><img src=''></a>
+  <a href='https://arxiv.org/abs/2508.02694'><img src='https://img.shields.io/badge/Paper Efficient Agents-arXiv-d63031?logo=arxiv&logoColor=white'></a>
   <a href='https://www.python.org/downloads/release/python-31210/'><img src='https://img.shields.io/badge/Python-3.12-green'></a>
-  <a href=''><img src=''></a>
+  <a href='https://github.com/Juvenilecris/Efficient-Agents/blob/main/LICENSE'><img src='https://img.shields.io/badge/License-Apache%202.0-blue'></a>
   
 </div>
 
