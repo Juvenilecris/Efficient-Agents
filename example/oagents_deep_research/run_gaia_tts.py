@@ -59,6 +59,25 @@ from smolagents import (
     ToolCallingAgent,
 )
 
+# Import utilities for cost tracking
+from smolagents.verify_function import reset_verify_function_cost_tracker, get_cumulative_verify_cost_details
+# Assuming OpenAIEmbedding is correctly placed for this import path
+from rag.embeddings.openai_embedding import OpenAIEmbedding, EmbeddingModelType 
+# Import new cost trackers from visual_qa
+from scripts.visual_qa import (
+    reset_idefics_hf_tracker, get_cumulative_idefics_hf_details,
+    reset_visualizer_gpt4o_tracker, get_cumulative_visualizer_gpt4o_details
+)
+# Import new cost trackers from audio_inspector_tool
+from scripts.audio_inspector_tool import (
+    reset_whisper_cost_tracker, get_cumulative_whisper_cost_details
+)
+# Import new cost trackers from visual_inspector_tool
+from scripts.visual_inspector_tool import (
+    reset_visual_inspector_gpt4o_tracker, get_cumulative_visual_inspector_gpt4o_details
+)
+
+
 AUTHORIZED_IMPORTS = [
     "requests",
     "zipfile",
@@ -431,6 +450,178 @@ Here is the task:
         "task": example["task"],
         "task_id": example["task_id"],
     }
+    # --- Collect and add cost summary --- 
+    all_costs_summary = {}
+
+    # 1. Manager Agent Model cost
+    manager_model_cost = {}
+    if hasattr(agent.model, "get_cumulative_cost_details"):
+        manager_model_cost = agent.model.get_cumulative_cost_details()
+    all_costs_summary["manager_agent_model_cost"] = manager_model_cost
+
+    # 2. Search Agent Model cost (if exists)
+    search_agent_model_cost = {}
+    if agent.managed_agents and "search_agent" in agent.managed_agents:
+        search_agent = agent.managed_agents["search_agent"]
+        if hasattr(search_agent.model, "get_cumulative_cost_details"):
+            search_agent_model_cost = search_agent.model.get_cumulative_cost_details()
+    all_costs_summary["search_agent_model_cost"] = search_agent_model_cost
+    
+    # Aggregate model costs
+    total_model_prompt_tokens = manager_model_cost.get("total_prompt_tokens", 0) + search_agent_model_cost.get("total_prompt_tokens", 0)
+    total_model_completion_tokens = manager_model_cost.get("total_completion_tokens", 0) + search_agent_model_cost.get("total_completion_tokens", 0)
+    total_model_input_cost = manager_model_cost.get("total_input_cost", 0.0) + search_agent_model_cost.get("total_input_cost", 0.0)
+    total_model_output_cost = manager_model_cost.get("total_output_cost", 0.0) + search_agent_model_cost.get("total_output_cost", 0.0)
+    total_model_cost_val = manager_model_cost.get("total_cost", 0.0) + search_agent_model_cost.get("total_cost", 0.0)
+    
+    all_costs_summary["aggregated_model_cost"] = {
+        "total_prompt_tokens": total_model_prompt_tokens,
+        "total_completion_tokens": total_model_completion_tokens,
+        "total_tokens": total_model_prompt_tokens + total_model_completion_tokens,
+        "total_input_cost": round(total_model_input_cost, 6),
+        "total_output_cost": round(total_model_output_cost, 6),
+        "total_cost": round(total_model_cost_val, 6)
+    }
+
+    # 3. Verify function cost
+    verify_cost = get_cumulative_verify_cost_details()
+    all_costs_summary["verify_function_cost"] = verify_cost
+
+    # 4. Embedding costs (from tools)
+    total_embedding_tokens_agg = 0
+    total_embedding_cost_agg = 0.0
+    embedding_details_list = []
+
+    # Helper function to process tools from an agent
+    def collect_embedding_costs_from_agent_tools(agent_instance, agent_name_prefix=""):
+        nonlocal total_embedding_tokens_agg, total_embedding_cost_agg # Allow modification of outer scope variables
+        if hasattr(agent_instance, 'tools'):
+            for tool_name, tool_instance in agent_instance.tools.items():
+                if hasattr(tool_instance, "embedding_model") and tool_instance.embedding_model is not None and hasattr(tool_instance.embedding_model, "get_cumulative_embedding_cost_details"):
+                    emb_cost_details = tool_instance.embedding_model.get_cumulative_embedding_cost_details()
+                    embedding_details_list.append({f"{agent_name_prefix}{tool_name}": emb_cost_details})
+                    total_embedding_tokens_agg += emb_cost_details.get("total_embedding_tokens", 0)
+                    total_embedding_cost_agg += emb_cost_details.get("total_embedding_cost", 0.0)
+                    # Resetting is handled by agent.run() now, so not needed here per tool after collection
+
+    # Collect from manager agent's tools
+    collect_embedding_costs_from_agent_tools(agent, agent_name_prefix="manager_")
+
+    # Collect from search agent's tools (if exists)
+    if agent.managed_agents and "search_agent" in agent.managed_agents:
+        collect_embedding_costs_from_agent_tools(agent.managed_agents["search_agent"], agent_name_prefix="search_")
+
+    all_costs_summary["embedding_costs_by_tool"] = embedding_details_list
+    all_costs_summary["aggregated_embedding_cost"] = {
+        "total_embedding_tokens": total_embedding_tokens_agg,
+        "total_embedding_cost": round(total_embedding_cost_agg, 6),
+    }
+
+    # 5. Whisper (ASR) costs from AudioInspectorTool
+    whisper_costs = get_cumulative_whisper_cost_details()
+    all_costs_summary["whisper_asr_cost"] = whisper_costs
+
+    # 6. VisualQA tool costs
+    idefics_hf_costs = get_cumulative_idefics_hf_details()
+    visualizer_gpt4o_costs = get_cumulative_visualizer_gpt4o_details()
+    all_costs_summary["visual_qa_idefics_hf_tokens"] = idefics_hf_costs # Only tokens, no direct $ cost here
+    all_costs_summary["visual_qa_visualizer_gpt4o_cost"] = visualizer_gpt4o_costs
+
+    # 7. Visual Inspector fallback GPT-4o cost
+    visual_inspector_fallback_costs = get_cumulative_visual_inspector_gpt4o_details()
+    all_costs_summary["visual_inspector_fallback_gpt4o_cost"] = visual_inspector_fallback_costs
+
+    # --- Aggregate all tokens from all sources ---
+    grand_total_prompt_tokens = 0
+    grand_total_completion_tokens = 0
+    grand_total_overall_tokens = 0 # This will be the sum of all tokens from all components
+
+    # 1. From aggregated_model_cost
+    grand_total_prompt_tokens += all_costs_summary.get("aggregated_model_cost", {}).get("total_prompt_tokens", 0)
+    grand_total_completion_tokens += all_costs_summary.get("aggregated_model_cost", {}).get("total_completion_tokens", 0)
+    grand_total_overall_tokens += all_costs_summary.get("aggregated_model_cost", {}).get("total_tokens", 0)
+
+    # 2. From verify_function_cost
+    grand_total_prompt_tokens += all_costs_summary.get("verify_function_cost", {}).get("total_prompt_tokens", 0)
+    grand_total_completion_tokens += all_costs_summary.get("verify_function_cost", {}).get("total_completion_tokens", 0)
+    # Assuming verify_function_cost might not have a pre-calculated 'total_tokens'
+    grand_total_overall_tokens += all_costs_summary.get("verify_function_cost", {}).get("total_prompt_tokens", 0) + \
+                                all_costs_summary.get("verify_function_cost", {}).get("total_completion_tokens", 0)
+
+    # 3. From aggregated_embedding_cost
+    # Embeddings typically count all processed tokens as 'prompt' or 'total' tokens.
+    embedding_tokens = all_costs_summary.get("aggregated_embedding_cost", {}).get("total_embedding_tokens", 0)
+    grand_total_prompt_tokens += embedding_tokens # Add to prompt tokens as they are input to the embedding model
+    grand_total_overall_tokens += embedding_tokens
+    # No completion tokens for embeddings in this context
+
+    # 4. From visual_qa_idefics_hf_tokens
+    grand_total_prompt_tokens += all_costs_summary.get("visual_qa_idefics_hf_tokens", {}).get("total_prompt_tokens", 0)
+    grand_total_completion_tokens += all_costs_summary.get("visual_qa_idefics_hf_tokens", {}).get("total_completion_tokens", 0)
+    grand_total_overall_tokens += all_costs_summary.get("visual_qa_idefics_hf_tokens", {}).get("total_tokens", 0)
+
+    # 5. From visual_qa_visualizer_gpt4o_cost
+    grand_total_prompt_tokens += all_costs_summary.get("visual_qa_visualizer_gpt4o_cost", {}).get("total_prompt_tokens", 0)
+    grand_total_completion_tokens += all_costs_summary.get("visual_qa_visualizer_gpt4o_cost", {}).get("total_completion_tokens", 0)
+    grand_total_overall_tokens += all_costs_summary.get("visual_qa_visualizer_gpt4o_cost", {}).get("total_tokens", 0)
+    
+    # 6. From visual_inspector_fallback_gpt4o_cost
+    grand_total_prompt_tokens += all_costs_summary.get("visual_inspector_fallback_gpt4o_cost", {}).get("total_prompt_tokens", 0)
+    grand_total_completion_tokens += all_costs_summary.get("visual_inspector_fallback_gpt4o_cost", {}).get("total_completion_tokens", 0)
+    grand_total_overall_tokens += all_costs_summary.get("visual_inspector_fallback_gpt4o_cost", {}).get("total_tokens", 0)
+
+    all_costs_summary["grand_total_task_tokens"] = {
+        "total_prompt_tokens": grand_total_prompt_tokens,
+        "total_completion_tokens": grand_total_completion_tokens,
+        "total_tokens": grand_total_overall_tokens, # This should be the sum of all tokens from all components
+    }
+    # --- End of token aggregation ---
+
+    # Grand total cost for the task
+    grand_total_cost = (
+        all_costs_summary["aggregated_model_cost"].get("total_cost", 0.0) +
+        all_costs_summary["verify_function_cost"].get("total_cost", 0.0) +
+        all_costs_summary["aggregated_embedding_cost"].get("total_embedding_cost", 0.0) +
+        all_costs_summary["whisper_asr_cost"].get("total_cost", 0.0) +
+        all_costs_summary["visual_qa_visualizer_gpt4o_cost"].get("total_cost", 0.0) +
+        all_costs_summary["visual_inspector_fallback_gpt4o_cost"].get("total_cost", 0.0)
+        # Note: idefics_hf_costs doesn't have a direct $ cost in this setup
+    )
+    all_costs_summary["grand_total_task_cost"] = round(grand_total_cost, 6)
+    
+    logger.info(f"Task {example['task_id']} Cost Summary: {json.dumps(all_costs_summary, indent=2)}")
+    annotated_example["cost_summary"] = all_costs_summary
+    # --- End of cost collection ---
+
+    # Prepare the main result example, excluding cost_summary initially
+    main_annotated_example = {
+        "agent_name": model.model_id, # Ensure model_id is the correct attribute for agent's name
+        "question": example["question"],
+        "augmented_question": augmented_question, # Usually not needed in final slim output
+        "prediction": output,
+        "true_answer": example["true_answer"],
+        "intermediate_steps": intermediate_steps, # Usually not needed in final slim output
+        "parsing_error": parsing_error,
+        "iteration_limit_exceeded": iteration_limit_exceeded,
+        "agent_error": str(exception) if raised_exception else None,
+        "start_time": start_time, # Usually not needed in final slim output
+        "end_time": end_time, # Usually not needed in final slim output
+        "task": example["task"], # Usually not needed in final slim output
+        "task_id": example["task_id"],
+        "search_agent_actions": agent.managed_agents['search_agent'].task_records, # Usually not needed in final slim output
+    }
+    
+    # Prepare the cost-specific example
+    cost_example = {
+        "task_id": example["task_id"],
+        "task": example["task"],
+        "agent_name": model.model_id, # Include agent name for context if needed
+        "agent_error": str(exception) if raised_exception else None, # Keep error for context
+        "prediction": output, # Keep prediction for context
+        "true_answer": example["true_answer"], # Keep true_answer for context
+        "cost_summary": all_costs_summary 
+    }
+    
     append_answer(annotated_example, answers_file, jsonl_lock)
 
 

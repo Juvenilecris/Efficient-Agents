@@ -1,35 +1,35 @@
 <div align="center">
 
-<h2>An Empirical Study of Building Effective Agents, OPPO PersonalAI Lab.</h2>
+<h2>Efficient Agents: Building Effective Agents While Reducing Cost, OPPO PersonalAI Lab.</h2>
 
 </div>
 
 <div align="center">
 
-  <a href='https://arxiv.org/pdf/2506.15741'><img src='https://img.shields.io/badge/Paper OAgents-arXiv-d63031?logo=arxiv&logoColor=white'></a>
-  <a href='https://arxiv.org/pdf/2506.12928'><img src='https://img.shields.io/badge/Paper TTS-arXiv-d63031?logo=arxiv&logoColor=white'></a>
+  <a href='https://arxiv.org/abs/2508.02694'><img src=''></a>
+  <a href='https://arxiv.org/abs/2508.02694'><img src=''></a>
   <a href='https://www.python.org/downloads/release/python-31210/'><img src='https://img.shields.io/badge/Python-3.12-green'></a>
-  <a href='https://github.com/OPPO-PersonalAI/OAgents/blob/main/LICENSE'><img src='https://img.shields.io/badge/License-Apache%202.0-blue'></a>
+  <a href=''><img src=''></a>
   
 </div>
 
-This is the official repository for our papers "OAgents: An Empirical Study of Building Effective Agents [[Paper]](https://arxiv.org/abs/2506.15741)" and "Scaling Test-time Compute for LLM Agents [[Paper]](https://arxiv.org/abs/2506.12928)".
+This is the official repository for our papers "Efficient Agents: Building Effective Agents While Reducing Cost [[Paper]](https://arxiv.org/abs/2508.02694)"
 
 <div align="center">
-    <img src="./assets/oagents.png" width="80%" height="auto" />
+    <img src="./assets/efficient_agent.png" width="80%" height="auto" />
 </div>
 
 ---
 
 ## News 📰
 
-**[2025.06.23]** Released the initial codebase.
+**[2025.08.06]** Released the initial codebase.
 
 ---
 
-## Introduction 📚
+## Abstract 📚
 
-Agentic AI has gained significant attention, but current research lacks standardization, making fair comparisons difficult. In this work, we conduct a systematic study on key design choices in agent frameworks using the GAIA and BrowseComp benchmarks. We introduce a robust evaluation protocol to ensure reproducibility and identify crucial components for effective agents. Based on our findings, we develop and open-source OAgents, a modular foundation agent framework that achieves state-of-the-art performance among open-source projects, promoting future research in Agentic AI.
+The remarkable capabilities of Large Language Model (LLM)-driven agents have enabled sophisticated systems to tackle complex, multi-step tasks, but their escalating costs threaten scalability and accessibility. This work presents the first systematic study of the efficiency-effectiveness trade-off in modern agent systems, addressing the critical need for cost-effective designs without sacrificing performance. We investigate three key questions: (1) How much complexity do agentic tasks inherently require? (2) When do additional modules yield diminishing returns? (3) How much efficiency can be gained through the design of efficient agent frameworks? Through an empirical analysis on the GAIA benchmark, we evaluate the impact of LLM backbone selection, agent framework designs, and test-time scaling strategies. Using the cost-of-pass metric, we quantify the efficiency-performance trade-off across these dimensions. Our findings inform the development of Efficient Agents , a novel agent framework that has an optimal complexity to task requirements. Efficient Agents retains 96.7% of the performance of OWL, one leading open-source agent framework, while reducing operational costs from 0.398to0.228, resulting in a 28.4% improvement in cost-of-pass. Our work provides actionable insights for designing efficient, high-performing agent systems, advancing the accessibility and sustainability of AI-driven solutions.
 
 ---
 
@@ -130,47 +130,21 @@ We would like to express our sincere gratitude to the original authors and contr
 - [[smolagents]](https://github.com/huggingface/smolagents) 
 
 Their thoughtful design and clear code structure greatly facilitated our exploration and experimentation.
-
-### Modifications for OAgents 🧪
-
-In the context of our framework **OAgents**, we have made several modifications to the original implementation, including but not limited to:
-
-- 🔄 **Architecture adjustments**: We restructured key components such as the memory module and planning system to better align with our experimental goals. Specifically, we implemented and evaluated multiple memory architectures (e.g., short-term memory, long-term memory, and etc.) and tested various agent workflows to assess their impact on task performance and learning efficiency.
-- 🛠️ **Tools optimization**: We enhanced the agent’s toolset by refining the search agent and introducing improved search and data processing capabilities. These updates aim to significantly boost the agent's ability to acquire, interpret, and utilize external knowledge during task execution.
-- ⏱️ **Test-time scaling strategies**: To further reduce inference errors and improve robustness, we incorporated test-time scaling techniques, such as repeated reasoning, majority voting, and consistency filtering. These methods were used to refine decision-making during deployment and enhance overall reliability.
-
-These changes were made with the goal of conducting a more rigorous and reproducible empirical analysis of agent-based learning systems. We acknowledge the importance of building upon existing work and hope that our contributions can further enrich the community's understanding of agent framework.
-
----
   
 ## Citation 🚩
 If you find this work useful, please consider citing our papers:
 
-**OAgents: An Empirical Study of Building Effective Agents**：
+**Efficient Agents: Building Effective Agents While Reducing Cost**：
 
 ```bigquery
-@misc{zhu2025oagentsempiricalstudybuilding,
-      title={OAgents: An Empirical Study of Building Effective Agents}, 
-      author={He Zhu and Tianrui Qin and King Zhu and Heyuan Huang and Yeyi Guan and Jinxiang Xia and Yi Yao and Hanhao Li and Ningning Wang and Pai Liu and Tianhao Peng and Xin Gui and Xiaowan Li and Yuhui Liu and Yuchen Eleanor Jiang and Jun Wang and Changwang Zhang and Xiangru Tang and Ge Zhang and Jian Yang and Minghao Liu and Xitong Gao and Wangchunshu Zhou and Jiaheng Liu},
+@misc{wang2025efficientagentsbuildingeffective,
+      title={Efficient Agents: Building Effective Agents While Reducing Cost}, 
+      author={Ningning Wang and Xavier Hu and Pai Liu and He Zhu and Yue Hou and Heyuan Huang and Shengyu Zhang and Jian Yang and Jiaheng Liu and Ge Zhang and Changwang Zhang and Jun Wang and Yuchen Eleanor Jiang and Wangchunshu Zhou},
       year={2025},
-      eprint={2506.15741},
+      eprint={2508.02694},
       archivePrefix={arXiv},
       primaryClass={cs.AI},
-      url={https://arxiv.org/abs/2506.15741}, 
-}
-```
-
-**Scaling Test-time Compute for LLM Agents**：
-
-```bigquery
-@misc{zhu2025scalingtesttimecomputellm,
-      title={Scaling Test-time Compute for LLM Agents}, 
-      author={King Zhu and Hanhao Li and Siwei Wu and Tianshun Xing and Dehua Ma and Xiangru Tang and Minghao Liu and Jian Yang and Jiaheng Liu and Yuchen Eleanor Jiang and Changwang Zhang and Chenghua Lin and Jun Wang and Ge Zhang and Wangchunshu Zhou},
-      year={2025},
-      eprint={2506.12928},
-      archivePrefix={arXiv},
-      primaryClass={cs.AI},
-      url={https://arxiv.org/abs/2506.12928}, 
+      url={https://arxiv.org/abs/2508.02694}, 
 }
 ```
 
@@ -180,6 +154,6 @@ If you find this work useful, please consider citing our papers:
 
 <div align="center">
 
-[![Star History Chart](https://api.star-history.com/svg?repos=OPPO-PersonalAI/OAgents&type=Date)](https://github.com/OPPO-PersonalAI/OAgents)
+[![Star History Chart](https://api.star-history.com/svg?repos=Juvenilecris/Efficient-Agents&type=Date)](https://github.com/OPPO-PersonalAI/OAgents)
 
 </div>

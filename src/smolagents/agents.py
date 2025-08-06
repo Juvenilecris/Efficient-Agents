@@ -79,6 +79,13 @@ from .utils import (
     parse_json_tool_call,
     truncate_content,
 )
+try:
+    from .verify_function import reset_verify_function_cost_tracker
+except ImportError:
+    reset_verify_function_cost_tracker = None # Placeholder if import fails
+    logger.warning("Could not import reset_verify_function_cost_tracker. Verify function costs might not be reset correctly at agent level.")
+
+
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 from openai import OpenAI
@@ -311,6 +318,7 @@ class MultiStepAgent:
         self.top_k = top_k
         self.retrieval_type = retrieval_type
         self._load_prompts()
+        self.tool_embedding_costs = {} 
 
     @property
     def logs(self):
@@ -540,6 +548,49 @@ class MultiStepAgent:
         if reset:
             self.memory.reset()
             self.monitor.reset()
+            
+            # Reset model cumulative costs
+            if hasattr(self.model, "reset_cumulative_cost"):
+                self.model.reset_cumulative_cost()
+            
+            # Reset costs for managed agents' models, if any
+            if self.managed_agents:
+                for managed_agent in self.managed_agents.values():
+                    if hasattr(managed_agent.model, "reset_cumulative_cost"):
+                        managed_agent.model.reset_cumulative_cost()
+            
+            # Reset verify_function costs (if directly managed or reset globally)
+            if reset_verify_function_cost_tracker is not None:
+                 reset_verify_function_cost_tracker() # Global reset
+
+            # Reset embedding costs for tools associated with this agent
+            # This requires tools to have a consistent way to reset their embedding costs
+            for tool_instance in self.tools.values():
+                if hasattr(tool_instance, "embedding_model") and hasattr(tool_instance.embedding_model, "reset_cumulative_cost"):
+                    tool_instance.embedding_model.reset_cumulative_cost()
+                # If the tool itself tracks embedding costs directly (less ideal but possible)
+                elif hasattr(tool_instance, "reset_embedding_cost") and callable(getattr(tool_instance, "reset_embedding_cost")):
+                    tool_instance.reset_embedding_cost()
+            
+            # Also reset for managed agents' tools
+            if self.managed_agents:
+                for managed_agent in self.managed_agents.values():
+                    for tool_instance in managed_agent.tools.values():
+                        if hasattr(tool_instance, "embedding_model") and hasattr(tool_instance.embedding_model, "reset_cumulative_cost"):
+                            tool_instance.embedding_model.reset_cumulative_cost()
+                        elif hasattr(tool_instance, "reset_embedding_cost") and callable(getattr(tool_instance, "reset_embedding_cost")):
+                            tool_instance.reset_embedding_cost()
+
+        self.task = task
+        if additional_args is not None:
+            self.state.update(additional_args)
+            self.task += f"""
+        You have been provided with these additional arguments, that you can access using the keys as variables in your python code:
+        {str(additional_args)}."""
+
+        self.system_prompt = self.initialize_system_prompt()
+        self.memory.system_prompt = SystemPromptStep(system_prompt=self.system_prompt)
+        
 
         self.logger.log_task(
             content=self.task.strip(),

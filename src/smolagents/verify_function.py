@@ -33,6 +33,31 @@ MODEL = "gpt-4.1"
 client = OpenAI(api_key=KEY, base_url=URL, timeout=600.0, max_retries=3)
 async_client = AsyncOpenAI(api_key=KEY, base_url=URL, timeout=600.0)
 
+logger = logging.getLogger(__name__) # Setup logger for this module
+
+# Module-level tracker for verify_function costs
+verify_function_cost_tracker = {
+    "model_id": MODEL, # Store the model ID used
+    "total_prompt_tokens": 0,
+    "total_completion_tokens": 0,
+    "total_input_cost": 0.0,
+    "total_output_cost": 0.0,
+    "total_cost": 0.0,
+}
+
+def reset_verify_function_cost_tracker():
+    global verify_function_cost_tracker
+    verify_function_cost_tracker = {
+        "model_id": MODEL,
+        "total_prompt_tokens": 0,
+        "total_completion_tokens": 0,
+        "total_input_cost": 0.0,
+        "total_output_cost": 0.0,
+        "total_cost": 0.0,
+    }
+
+def get_cumulative_verify_cost_details() -> dict:
+    return verify_function_cost_tracker.copy()
 
 def extract_json_objects(text: str) -> list:
 

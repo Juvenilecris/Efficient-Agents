@@ -60,6 +60,14 @@ class OpenAIEmbedding(BaseEmbedding[str]):
         self._base_url = os.getenv("OPENAI_BASE_URL")
 
         self.client = OpenAI(timeout=60, max_retries=3, api_key=self._api_key, base_url=self._base_url)
+        
+        # Store string representation for pricing
+        self.model_type_str = model_type.value 
+
+        # Initialize cumulative cost and token counters
+        self.total_tokens_processed = 0
+        self.total_embedding_cost = 0.0
+        
 
     @api_keys_required("OPENAI_API_KEY")
     def embed_list(
@@ -92,6 +100,22 @@ class OpenAIEmbedding(BaseEmbedding[str]):
                 dimensions=self.output_dim,
                 **kwargs,
             )
+        tokens_processed = response.usage.prompt_tokens # For embeddings, prompt_tokens are the ones processed
+        
+        _, _, current_cost = calculate_cost(
+            self.model_type_str, tokens_processed, is_embedding=True
+        )
+
+        self.total_tokens_processed += tokens_processed
+        self.total_embedding_cost += current_cost
+
+        logger.debug( # Changed to debug
+            f"Embedding Call - Model: {self.model_type_str}, Tokens Processed: {tokens_processed}, Cost: ${current_cost:.6f}"
+        )
+        logger.debug( # Changed to debug
+            f"Embedding Cumulative - Total Tokens: {self.total_tokens_processed}, Total Cost: ${self.total_embedding_cost:.6f}"
+        )
+        
         return [data.embedding for data in response.data]
 
     def get_output_dim(self) -> int:
@@ -101,3 +125,13 @@ class OpenAIEmbedding(BaseEmbedding[str]):
             int: The dimensionality of the embedding for the current model.
         """
         return self.output_dim
+    def get_cumulative_embedding_cost_details(self) -> dict[str, Any]:
+        return {
+            "embedding_model_id": self.model_type_str,
+            "total_embedding_tokens": self.total_tokens_processed,
+            "total_embedding_cost": self.total_embedding_cost,
+        }
+    
+    def reset_cumulative_cost(self):
+        self.total_tokens_processed = 0
+        self.total_embedding_cost = 0.0

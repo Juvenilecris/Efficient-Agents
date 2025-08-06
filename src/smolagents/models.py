@@ -43,6 +43,7 @@ from .utils import _is_package_available, encode_image_base64, make_image_url
 import ast
 from json_repair import repair_json
 
+from .pricing import calculate_cost
 
 if TYPE_CHECKING:
     from transformers import StoppingCriteriaList
@@ -760,6 +761,14 @@ class LiteLLMModel(Model):
             if "flatten_messages_as_text" in kwargs
             else self.model_id.startswith(("ollama", "groq", "cerebras"))
         )
+        # Initialize cost and token trackers
+        self.total_prompt_tokens = 0
+        self.total_completion_tokens = 0
+        self.total_input_cost = 0.0
+        self.total_output_cost = 0.0
+        self.total_cost = 0.0
+        self._pricing_model_id=self.model_id
+        
 
     def __call__(
         self,
@@ -795,6 +804,29 @@ class LiteLLMModel(Model):
 
         self.last_input_token_count = response.usage.prompt_tokens
         self.last_output_token_count = response.usage.completion_tokens
+        # Calculate and accumulate costs
+        prompt_tokens = self.last_input_token_count if self.last_input_token_count is not None else 0
+        completion_tokens = self.last_output_token_count if self.last_output_token_count is not None else 0
+
+        current_input_cost, current_output_cost, current_total_cost = calculate_cost(
+            self._pricing_model_id, prompt_tokens, completion_tokens, is_embedding=False
+        )
+
+        self.total_prompt_tokens += prompt_tokens
+        self.total_completion_tokens += completion_tokens
+        self.total_input_cost += current_input_cost
+        self.total_output_cost += current_output_cost
+        self.total_cost += current_total_cost
+        
+        logger.debug( # Changed to debug to avoid excessive logging, can be INFO if preferred
+            f"Model Call: {self.model_id}, Prompt Tokens: {prompt_tokens}, Completion Tokens: {completion_tokens}, "
+            f"Input Cost: ${current_input_cost:.6f}, Output Cost: ${current_output_cost:.6f}, Call Total Cost: ${current_total_cost:.6f}"
+        )
+        logger.debug( # Changed to debug
+            f"Cumulative - Model: {self.model_id}, Total Prompt Tokens: {self.total_prompt_tokens}, Total Completion Tokens: {self.total_completion_tokens}, "
+            f"Total Input Cost: ${self.total_input_cost:.6f}, Total Output Cost: ${self.total_output_cost:.6f}, Grand Total Cost: ${self.total_cost:.6f}"
+        )
+        
         message = ChatMessage.from_dict(
             response.choices[0].message.model_dump(include={"role", "content", "tool_calls"})
         )
@@ -803,7 +835,40 @@ class LiteLLMModel(Model):
         if tools_to_call_from is not None:
             return parse_tool_args_if_needed(message)
         return message
+    def reset_cumulative_cost(self):
+        """Resets the cumulative cost and token trackers."""
+        self.total_prompt_tokens = 0
+        self.total_completion_tokens = 0
+        self.total_input_cost = 0.0
+        self.total_output_cost = 0.0
+        self.total_cost = 0.0
 
+    def get_cumulative_cost_details(self):
+        """Returns a dictionary with the cumulative cost and token details."""
+        return {
+            "model_id": self.model_id,
+            "total_prompt_tokens": self.total_prompt_tokens,
+            "total_completion_tokens": self.total_completion_tokens,
+            "total_tokens": self.total_prompt_tokens + self.total_completion_tokens,
+            "total_input_cost_usd": self.total_input_cost,
+            "total_output_cost_usd": self.total_output_cost,
+            "total_cost_usd": self.total_cost,
+        }
+    def to_dict(self) -> Dict[str, Any]:
+        # Ensure this method calls super if it exists and includes other necessary data
+        data = {}
+        if hasattr(super(), "to_dict"):
+            data = super().to_dict() # type: ignore
+        
+        data.update({
+            "model_id": self.model_id,
+            "last_input_token_count": self.last_input_token_count,
+            "last_output_token_count": self.last_output_token_count,
+            # Add cumulative cost details here if desired for serialization by default
+            "cumulative_cost_details": self.get_cumulative_cost_details(),
+        })
+        return data
+    
 
 class OpenAIServerModel(Model):
     """This model connects to an OpenAI-compatible API server.
@@ -852,6 +917,16 @@ class OpenAIServerModel(Model):
             project=project,
         )
         self.custom_role_conversions = custom_role_conversions
+        # Initialize cumulative cost and token counters
+        self.total_prompt_tokens = 0
+        self.total_completion_tokens = 0
+        self.total_input_cost = 0.0
+        self.total_output_cost = 0.0
+        self.total_cost = 0.0
+        
+        # Store model_id for pricing lookup, can be normalized here if needed
+        self._pricing_model_id = self.model_id
+        
 
     @staticmethod
     def truncate_content_based_on_stop_sequences(content: str, stop_sequences: List[str]) -> str:
@@ -897,6 +972,26 @@ class OpenAIServerModel(Model):
 
                 self.last_input_token_count = response.usage.prompt_tokens
                 self.last_output_token_count = response.usage.completion_tokens
+                
+                current_input_cost, current_output_cost, current_total_cost = calculate_cost(
+                    self._pricing_model_id, prompt_tokens, completion_tokens, is_embedding=False
+                )
+
+                self.total_prompt_tokens += prompt_tokens
+                self.total_completion_tokens += completion_tokens
+                self.total_input_cost += current_input_cost
+                self.total_output_cost += current_output_cost
+                self.total_cost += current_total_cost
+                
+                logger.debug( # Changed to debug to avoid excessive logging, can be INFO if preferred
+                    f"Model Call: {self.model_id}, Prompt Tokens: {prompt_tokens}, Completion Tokens: {completion_tokens}, "
+                    f"Input Cost: ${current_input_cost:.6f}, Output Cost: ${current_output_cost:.6f}, Call Total Cost: ${current_total_cost:.6f}"
+                )
+                logger.debug( # Changed to debug
+                    f"Cumulative - Model: {self.model_id}, Total Prompt Tokens: {self.total_prompt_tokens}, Total Completion Tokens: {self.total_completion_tokens}, "
+                    f"Total Input Cost: ${self.total_input_cost:.6f}, Total Output Cost: ${self.total_output_cost:.6f}, Grand Total Cost: ${self.total_cost:.6f}"
+                )
+
 
                 if not response.choices[0].message.content and not getattr(response.choices[0].message, 'tool_calls', None):  # o1 o3-mini
                     raise EmptyContentError(response)
@@ -951,6 +1046,39 @@ class OpenAIServerModel(Model):
         # if tools_to_call_from is not None:
         #     return parse_tool_args_if_needed(message)
         # return message
+    def get_cumulative_cost_details(self) -> Dict[str, Any]:
+        return {
+            "model_id": self.model_id,
+            "total_prompt_tokens": self.total_prompt_tokens,
+            "total_completion_tokens": self.total_completion_tokens,
+            "total_tokens": self.total_prompt_tokens + self.total_completion_tokens,
+            "total_input_cost": self.total_input_cost,
+            "total_output_cost": self.total_output_cost,
+            "total_cost": self.total_cost,
+        }
+
+    def reset_cumulative_cost(self):
+        self.total_prompt_tokens = 0
+        self.total_completion_tokens = 0
+        self.total_input_cost = 0.0
+        self.total_output_cost = 0.0
+        self.total_cost = 0.0
+
+    def to_dict(self) -> Dict[str, Any]:
+        # Ensure this method calls super if it exists and includes other necessary data
+        data = {}
+        if hasattr(super(), "to_dict"):
+            data = super().to_dict() # type: ignore
+        
+        data.update({
+            "model_id": self.model_id,
+            "last_input_token_count": self.last_input_token_count,
+            "last_output_token_count": self.last_output_token_count,
+            # Add cumulative cost details here if desired for serialization by default
+            "cumulative_cost_details": self.get_cumulative_cost_details(),
+        })
+        return data
+    
 
 
 class AzureOpenAIServerModel(OpenAIServerModel):

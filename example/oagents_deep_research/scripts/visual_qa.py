@@ -19,6 +19,55 @@ load_dotenv(override=True)
 
 idefics_processor = AutoProcessor.from_pretrained("HuggingFaceM4/idefics2-8b-chatty")
 
+# Tracker for HF InferenceClient (idefics2-8b-chatty)
+idefics_hf_tracker = {
+    "model_id": "HuggingFaceM4/idefics2-8b-chatty",
+    "total_prompt_tokens": 0,
+    "total_completion_tokens": 0,
+    "total_tokens": 0,
+    "api_calls": 0,
+}
+
+def reset_idefics_hf_tracker():
+    global idefics_hf_tracker
+    idefics_hf_tracker = {
+        "model_id": "HuggingFaceM4/idefics2-8b-chatty",
+        "total_prompt_tokens": 0,
+        "total_completion_tokens": 0,
+        "total_tokens": 0,
+        "api_calls": 0,
+    }
+
+def get_cumulative_idefics_hf_details() -> dict:
+    return idefics_hf_tracker.copy()
+
+# Tracker for the direct gpt-4o call in visualizer function
+visualizer_gpt4o_tracker = {
+    "model_id": "gpt-4o-2024-11-20", # As specified in payload
+    "total_prompt_tokens": 0,
+    "total_completion_tokens": 0,
+    "total_tokens": 0,
+    "total_input_cost": 0.0,
+    "total_output_cost": 0.0,
+    "total_cost": 0.0,
+    "api_calls": 0,
+}
+
+def reset_visualizer_gpt4o_tracker():
+    global visualizer_gpt4o_tracker
+    visualizer_gpt4o_tracker = {
+        "model_id": "gpt-4o-2024-11-20",
+        "total_prompt_tokens": 0,
+        "total_completion_tokens": 0,
+        "total_tokens": 0,
+        "total_input_cost": 0.0,
+        "total_output_cost": 0.0,
+        "total_cost": 0.0,
+        "api_calls": 0,
+    }
+
+def get_cumulative_visualizer_gpt4o_details() -> dict:
+    return visualizer_gpt4o_tracker.copy()
 
 def process_images_and_text(image_path, query, client):
     messages = [
@@ -61,7 +110,44 @@ def process_images_and_text(image_path, query, client):
         },
     }
 
-    return json.loads(client.post(json=payload).decode())[0]
+    raw_response = client.post(json=payload)
+    response_data = json.loads(raw_response.decode())[0]
+
+    # Attempt to get token counts - THIS IS SPECULATIVE for HF Inference API
+    # The actual way to get token counts depends on the specific model server's response format.
+    # HF text-generation-inference might provide `details` with `prefill` (input) and `generated_tokens`.
+    prompt_tokens = 0
+    completion_tokens = 0
+    if response_data and isinstance(response_data, dict) and "details" in response_data:
+        if "prefill" in response_data["details"] and isinstance(response_data["details"]["prefill"], list) and len(response_data["details"]["prefill"]) > 0:
+            # Assuming prefill tokens are in the first element's 'tokens' field if it exists
+            if isinstance(response_data["details"]["prefill"][0], dict) and "tokens" in response_data["details"]["prefill"][0]:
+                 prompt_tokens = response_data["details"]["prefill"][0]["tokens"]
+        # 'generated_tokens' is often directly available
+        completion_tokens = response_data["details"].get("generated_tokens", 0)
+    elif response_data and isinstance(response_data, dict) and "generated_text" in response_data and "inputs" in payload:
+        # Fallback: estimate based on string length if no direct token count (very rough)
+        # This is not a good way to count tokens and should be replaced if possible.
+        # prompt_tokens = len(payload["inputs"]) // 4 # Rough estimate
+        # completion_tokens = len(response_data["generated_text"]) // 4 # Rough estimate
+        logger.warning("HF InferenceClient token count not directly available in response, relying on generated_tokens or falling back to 0.")
+        # If only generated_tokens is available from details, use that. Otherwise, might need to use tokenizer manually if precise counts are needed.
+        if "details" in response_data and "generated_tokens" in response_data["details"]:
+            completion_tokens = response_data["details"].get("generated_tokens",0)
+        else: # Unable to determine tokens
+            prompt_tokens = 0
+            completion_tokens = 0
+            logger.warning("Cannot determine prompt or completion tokens for HF idefics call.")
+
+    global idefics_hf_tracker
+    idefics_hf_tracker["total_prompt_tokens"] += prompt_tokens
+    idefics_hf_tracker["total_completion_tokens"] += completion_tokens
+    idefics_hf_tracker["total_tokens"] += (prompt_tokens + completion_tokens)
+    idefics_hf_tracker["api_calls"] += 1
+    logger.debug(f"HF Idefics Call - Prompt Tokens: {prompt_tokens}, Completion Tokens: {completion_tokens}")
+    logger.debug(f"HF Idefics Cumulative - Total Calls: {idefics_hf_tracker['api_calls']}, Total Tokens: {idefics_hf_tracker['total_tokens']}")
+
+    return response_data.get("generated_text", "") # Return the generated text
 
 
 # Function to encode the image
@@ -175,11 +261,49 @@ def visualizer(image_path: str, question: Optional[str] = None) -> str:
         ],
         "max_tokens": 1000,
     }
-    response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
     try:
-        output = response.json()["choices"][0]["message"]["content"]
-    except Exception:
-        raise Exception(f"Response format unexpected: {response.json()}")
+        response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
+        response.raise_for_status() # Raise an exception for HTTP errors
+        response_json = response.json()
+        output = response_json["choices"][0]["message"]["content"]
+
+        # Cost tracking for gpt-4o
+        prompt_tokens = 0
+        completion_tokens = 0
+        if "usage" in response_json:
+            prompt_tokens = response_json["usage"].get("prompt_tokens", 0)
+            completion_tokens = response_json["usage"].get("completion_tokens", 0)
+        else:
+            logger.warning("Usage field not found in visualizer gpt-4o response. Cannot track tokens.")
+
+        current_input_cost, current_output_cost, current_total_cost = calculate_cost(
+            payload["model"], prompt_tokens, completion_tokens, is_embedding=False
+        )
+
+        global visualizer_gpt4o_tracker
+        visualizer_gpt4o_tracker["total_prompt_tokens"] += prompt_tokens
+        visualizer_gpt4o_tracker["total_completion_tokens"] += completion_tokens
+        visualizer_gpt4o_tracker["total_tokens"] += (prompt_tokens + completion_tokens)
+        visualizer_gpt4o_tracker["total_input_cost"] += current_input_cost
+        visualizer_gpt4o_tracker["total_output_cost"] += current_output_cost
+        visualizer_gpt4o_tracker["total_cost"] += current_total_cost
+        visualizer_gpt4o_tracker["api_calls"] += 1
+        
+        logger.debug(
+            f"Visualizer GPT-4o Call - Prompt Tokens: {prompt_tokens}, Completion Tokens: {completion_tokens}, "
+            f"Input Cost: ${current_input_cost:.6f}, Output Cost: ${current_output_cost:.6f}, Call Total Cost: ${current_total_cost:.6f}"
+        )
+        logger.debug(
+            f"Visualizer GPT-4o Cumulative - Total Calls: {visualizer_gpt4o_tracker['api_calls']}, Total Tokens: {visualizer_gpt4o_tracker['total_tokens']}, Total Cost: ${visualizer_gpt4o_tracker['total_cost']:.6f}"
+        )
+
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Visualizer HTTP Request failed: {e}")
+        output="Failed to get response from visualizer API."
+    except (KeyError, IndexError, TypeError) as e:
+        # raise Exception(f"Response format unexpected: {response.json()}")
+        logger.error(f"Visualizer API response format error: {e}. Response: {response.text if 'response' in locals() else 'N/A'}")
+        output="None valid question due to unsolvable problem, please set your final answer to Unable to determine."
 
     if add_note:
         output = f"You did not provide a particular question, so here is a detailed caption for the image: {output}"

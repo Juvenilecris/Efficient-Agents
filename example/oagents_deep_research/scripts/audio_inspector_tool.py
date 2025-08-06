@@ -22,6 +22,43 @@ from smolagents.models import MessageRole, Model
 import openai
 import os
 
+# Placeholder for a function to get audio duration. You'll need to implement this.
+# For example, using a library like pydub: from pydub import AudioSegment; duration = AudioSegment.from_file(file_path).duration_seconds
+def get_audio_duration_seconds(file_path: str) -> float:
+    """Placeholder: Implement this function to get audio duration in seconds."""
+    # Example implementation (replace with actual logic):
+    try:
+        from pydub import AudioSegment
+        audio = AudioSegment.from_file(file_path)
+        return audio.duration_seconds
+    except Exception as e:
+        logger.warning(f"Could not get audio duration for {file_path} using pydub: {e}. Returning 0.")
+        return 0.0 
+
+logger = logging.getLogger(__name__)
+
+# Module-level tracker for Whisper costs
+whisper_cost_tracker = {
+    "model_id": "whisper-1",
+    "total_minutes_processed": 0.0,
+    "total_cost": 0.0,
+    "api_calls": 0,
+}
+
+WHISPER_PRICE_PER_MINUTE = 0.006
+
+def reset_whisper_cost_tracker():
+    global whisper_cost_tracker
+    whisper_cost_tracker = {
+        "model_id": "whisper-1",
+        "total_minutes_processed": 0.0,
+        "total_cost": 0.0,
+        "api_calls": 0,
+    }
+
+def get_cumulative_whisper_cost_details() -> dict:
+    return whisper_cost_tracker.copy()
+
 class AudioInspectorTool(Tool):
     name = "inspect_file_as_audio"
     description = """
@@ -62,6 +99,22 @@ This tool supports the following audio formats: [".mp3", ".m4a", ".wav"]. For ot
                     model="whisper-1",
                     file=audio_file
                 )
+            # Cost tracking for Whisper
+            audio_duration_seconds = get_audio_duration_seconds(file_path)
+            audio_duration_minutes = audio_duration_seconds / 60.0
+            current_whisper_cost = audio_duration_minutes * WHISPER_PRICE_PER_MINUTE
+
+            global whisper_cost_tracker
+            whisper_cost_tracker["total_minutes_processed"] += audio_duration_minutes
+            whisper_cost_tracker["total_cost"] += current_whisper_cost
+            whisper_cost_tracker["api_calls"] += 1
+
+            logger.debug(
+                f"Whisper Call - File: {file_path}, Duration (min): {audio_duration_minutes:.2f}, Cost: ${current_whisper_cost:.6f}"
+            )
+            logger.debug(
+                f"Whisper Cumulative - Total Calls: {whisper_cost_tracker['api_calls']}, Total Minutes: {whisper_cost_tracker['total_minutes_processed']:.2f}, Total Cost: ${whisper_cost_tracker['total_cost']:.6f}"
+            )
             return transcription.text
         except Exception as e:
             raise RuntimeError(f"Speech recognition failed: {str(e)}") from e

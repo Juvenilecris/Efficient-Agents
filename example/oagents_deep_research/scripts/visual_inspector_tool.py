@@ -30,6 +30,35 @@ from smolagents.models import Model
 from PIL import Image
 
 load_dotenv(override=True)
+logger = logging.getLogger(__name__)
+
+# Tracker for fallback GPT-4o calls within VisualInspectorTool
+visual_inspector_gpt4o_tracker = {
+    "model_id": "gpt-4o-2024-11-20", # Fallback model
+    "total_prompt_tokens": 0,
+    "total_completion_tokens": 0,
+    "total_tokens": 0,
+    "total_input_cost": 0.0,
+    "total_output_cost": 0.0,
+    "total_cost": 0.0,
+    "api_calls": 0,
+}
+
+def reset_visual_inspector_gpt4o_tracker():
+    global visual_inspector_gpt4o_tracker
+    visual_inspector_gpt4o_tracker = {
+        "model_id": "gpt-4o-2024-11-20",
+        "total_prompt_tokens": 0,
+        "total_completion_tokens": 0,
+        "total_tokens": 0,
+        "total_input_cost": 0.0,
+        "total_output_cost": 0.0,
+        "total_cost": 0.0,
+        "api_calls": 0,
+    }
+
+def get_cumulative_visual_inspector_gpt4o_details() -> dict:
+    return visual_inspector_gpt4o_tracker.copy()
 
 class VisualInspectorTool(Tool):
     name = "inspect_file_as_image"
@@ -133,6 +162,38 @@ This tool supports the following image formats: [".jpg", ".jpeg", ".png", ".gif"
             )
             response.raise_for_status()
             description = response.json()["choices"][0]["message"]["content"]
+            # --- Cost Tracking for Fallback GPT-4o ---
+            prompt_tokens = 0
+            completion_tokens = 0
+            response_json = response.json()
+            if "usage" in response_json:
+                prompt_tokens = response_json["usage"].get("prompt_tokens", 0)
+                completion_tokens = response_json["usage"].get("completion_tokens", 0)
+            else:
+                logger.warning("Usage field not found in VisualInspectorTool fallback gpt-4o response. Cannot track tokens.")
+
+            current_input_cost, current_output_cost, current_total_cost = calculate_cost(
+                payload["model"], prompt_tokens, completion_tokens, is_embedding=False
+            )
+
+            global visual_inspector_gpt4o_tracker
+            visual_inspector_gpt4o_tracker["total_prompt_tokens"] += prompt_tokens
+            visual_inspector_gpt4o_tracker["total_completion_tokens"] += completion_tokens
+            visual_inspector_gpt4o_tracker["total_tokens"] += (prompt_tokens + completion_tokens)
+            visual_inspector_gpt4o_tracker["total_input_cost"] += current_input_cost
+            visual_inspector_gpt4o_tracker["total_output_cost"] += current_output_cost
+            visual_inspector_gpt4o_tracker["total_cost"] += current_total_cost
+            visual_inspector_gpt4o_tracker["api_calls"] += 1
+            
+            logger.debug(
+                f"VisualInspectorTool Fallback GPT-4o Call - Prompt Tokens: {prompt_tokens}, Completion Tokens: {completion_tokens}, "
+                f"Input Cost: ${current_input_cost:.6f}, Output Cost: ${current_output_cost:.6f}, Call Total Cost: ${current_total_cost:.6f}"
+            )
+            logger.debug(
+                f"VisualInspectorTool Fallback GPT-4o Cumulative - Total Calls: {visual_inspector_gpt4o_tracker['api_calls']}, Total Tokens: {visual_inspector_gpt4o_tracker['total_tokens']}, Total Cost: ${visual_inspector_gpt4o_tracker['total_cost']:.6f}"
+            )
+            # --- End Cost Tracking ---
+
         except Exception as gpt_error:
             return f"Visual processing failed: {str(gpt_error)}"
 
