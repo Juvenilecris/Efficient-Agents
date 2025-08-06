@@ -154,6 +154,6 @@ If you find this work useful, please consider citing our papers:
 
 <div align="center">
 
-[![Star History Chart](https://api.star-history.com/svg?repos=Juvenilecris/Efficient-Agents&type=Date)](https://github.com/OPPO-PersonalAI/OAgents)
+[![Star History Chart](https://api.star-history.com/svg?repos=Juvenilecris/Efficient-Agents&type=Date)](https://github.com/Juvenilecris/Efficient-Agents)
 
 </div>
