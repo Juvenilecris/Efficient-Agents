@@ -15,7 +15,7 @@
 This is the official repository for our papers "Efficient Agents: Building Effective Agents While Reducing Cost [[Paper]](https://arxiv.org/abs/2508.02694)"
 
 <div align="center">
-    <img src="./assets/efficient_agent.png" width="80%" height="auto" />
+    <img src="./assets/efficient_agents.png" width="80%" height="auto" />
 </div>
 
 ---
